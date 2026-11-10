@@ -1,0 +1,10 @@
+# Downloaded / generated data (re-creatable via setup.sh)
+data/raw/
+data/quarantine/
+*.csv
+!data/reference/*.csv
+venv/
+.venv/
+__pycache__/
+.env
+airflow/logs/
