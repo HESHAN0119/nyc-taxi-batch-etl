@@ -120,8 +120,8 @@ data/reference/          lookup CSVs (vendor, payment type, rate code, taxi zone
 
 - **Daily files:** TLC publishes monthly files only. They are split into daily files to simulate a daily feed.
   Trips with a pickup date outside their month are kept in `data/quarantine/`, not dropped.
-- **Cleaning:** before loading into bronze, trips are rejected when the dropoff is not after the pickup, the duration is over 24 h,
-  the distance is negative or over 100 miles, or the amount is negative.
+- **Cleaning:** before loading into bronze, trips are rejected when the pickup is not on the load date,
+  the dropoff is not after the pickup, the duration is over 24 h, or the fare or total amount is negative.
   Rejected rows are saved to `data/quarantine/rejected_<day>.parquet` with the reason.
 - **No duplicates:** each load deletes the day it loads, then inserts it, in one transaction (bronze and silver).
   Re-running a day replaces it.
