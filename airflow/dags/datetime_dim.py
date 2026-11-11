@@ -1,12 +1,4 @@
-"""
-### Datetime dimension (SCD Type 0)
-
-Generates one row per hour (START_DATE..END_DATE) into `silver.dim_datetime`. No CSV and no bronze:
-a calendar can be calculated, and it never changes.
-
-Logic: `data_ingestion/datetime_ingestion.py`, SQL: `sql/load_dim_datetime.sql`.
-Runs once when unpaused; to extend the range, change END_DATE in the Python file and trigger again.
-"""
+"""Datetime dimension: one row per hour from START_DATE to END_DATE (set in datetime_ingestion.py)."""
 
 from datetime import datetime, timedelta
 
@@ -17,7 +9,7 @@ from data_ingestion.db import create_schema
 
 
 @dag(
-    schedule="@once",                    # a calendar only needs to be generated once
+    schedule="@once",                    # run once
     start_date=datetime(2026, 1, 1),
     catchup=False,
     max_active_runs=1,

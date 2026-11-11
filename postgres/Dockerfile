@@ -1,5 +1,5 @@
-# Official PostgreSQL image + our first-start setup scripts.
+# PostgreSQL + first-start script
 FROM postgres:16
 
-# Every .sql/.sh file in init/ runs once, when the warehouse volume is empty.
+# runs once when the database is created
 COPY init/ /docker-entrypoint-initdb.d/

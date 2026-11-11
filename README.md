@@ -79,7 +79,7 @@ in `data_ingestion/raw_data_ingestion.py`.
 Open Superset at http://localhost:8088.
 
 1. **Datasets** -> import icon (top right) -> choose `superset/dashboard/dataset_export_20261110T170442.zip` -> **Import**.
-2. **Dashboards** -> import icon (top right) -> choose `superset/dashboard/dashboard_export_20261110T160307.zip` -> **Import**.
+2. **Dashboards** -> import icon (top right) -> choose `superset/dashboard/dashboard_export_20261111T182813.zip` -> **Import**.
 3. When asked for the password of the **NYC Taxi DW** database, enter `DW_DB_PASSWORD` from `.env`.
 4. Open **NYC Taxi - Trip Analytics**.
 5. Set the date filter: the data is from 2023, and the charts default to the current month, so they show

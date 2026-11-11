@@ -1,6 +1,4 @@
--- dim_datetime (SCD Type 0: a calendar never changes) - one row per hour, generated (no CSV, no bronze).
--- Parameters: %(start_date)s and %(end_date)s (inclusive), set in data_ingestion/datetime_ingestion.py.
--- Hours that already exist are skipped, so this is safe to re-run or to run with a wider range later.
+-- One row per hour between start_date and end_date. Existing hours are skipped.
 
 INSERT INTO silver.dim_datetime
        (datetime_key, datetime_hour, date, year, quarter, month, month_name,

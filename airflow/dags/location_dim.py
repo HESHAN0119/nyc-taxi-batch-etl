@@ -1,11 +1,4 @@
-"""
-### Location dimension (SCD Type 2)
-
-`data/reference/taxi_zone_lookup.csv` -> `bronze.stg_taxi_zone` (truncate + reload)
--> `silver.dim_location` (changed zone: old row closed + new version inserted; history kept).
-
-Logic: `data_ingestion/location_ingestion.py`, SQL: `sql/scd2_dim_location.sql`.
-"""
+"""Location dimension (SCD2): taxi_zone_lookup.csv -> bronze.stg_taxi_zone -> silver.dim_location."""
 
 from datetime import datetime, timedelta
 
@@ -16,7 +9,7 @@ from data_ingestion.location_ingestion import ingest_location_data, load_dim_loc
 
 
 @dag(
-    schedule="30 1 * * *",               # 01:30 daily, before the trip load at 02:00
+    schedule="30 1 * * *",               # 01:30 every day
     start_date=datetime(2026, 1, 1),
     catchup=False,
     max_active_runs=1,

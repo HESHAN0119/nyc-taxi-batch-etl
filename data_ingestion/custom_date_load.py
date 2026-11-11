@@ -1,8 +1,4 @@
-"""Load a range of days in one go: daily parquet -> clean -> bronze.stg_taxi_trips -> silver.fact_taxi_trips.
-
-Set START_DATE and END_DATE below, then trigger the Airflow DAG load_custom_date.
-Re-loading a day replaces it (no duplicates), so the range can be loaded again safely.
-"""
+"""Loads a range of days: daily parquet -> clean -> bronze -> fact table. Used by the load_custom_date DAG."""
 
 import logging
 from datetime import date, timedelta
@@ -22,13 +18,13 @@ from data_ingestion.raw_data_ingestion import (
 
 log = logging.getLogger(__name__)
 
-# Days to load (both included), format YYYY-MM-DD.
+# Days to load (both included)
 START_DATE = "2023-01-01"
 END_DATE = "2023-01-10"
 
 
 def get_days() -> list[str]:
-    "returns every day from START_DATE to END_DATE"
+    "list of days from START_DATE to END_DATE"
     start = date.fromisoformat(START_DATE)
     end = date.fromisoformat(END_DATE)
     if start > end:
@@ -37,7 +33,7 @@ def get_days() -> list[str]:
 
 
 def load_day(day: str) -> dict:
-    "loads one day into bronze (cleaned) and then into the fact table"
+    "loads one day into bronze and the fact table"
     load_date = date.fromisoformat(day)
     source = daily_file(load_date)
     if not source.exists():

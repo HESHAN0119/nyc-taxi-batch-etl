@@ -1,29 +1,25 @@
--- Task 5: analytics queries on the star schema (silver.fact_taxi_trips + dimensions).
--- The fact table holds raw trips, so each query filters out what would distort its metric
--- (refunds with negative amounts, zero-distance trips).
+-- Task 5 queries
 
 -- ============================================================================
 -- 1. Average fare amount per mile
 -- ============================================================================
 
--- 1a. Overall. Two ways to measure it:
---   weighted   = total fare / total miles (recommended: short trips can't dominate)
---   per_trip   = average of each trip's fare/mile (inflated by very short trips)
+-- 1a. Overall (weighted = total fare / total miles)
 SELECT COUNT(*)                                           AS trips,
        ROUND(SUM(fare_amount) / SUM(trip_distance), 2)    AS avg_fare_per_mile_weighted,
        ROUND(AVG(fare_amount / trip_distance), 2)         AS avg_fare_per_mile_per_trip
 FROM   silver.fact_taxi_trips
 WHERE  trip_distance > 0
-  AND  trip_distance <= 100      -- drop GPS/meter errors (e.g. 187,872 miles in 10 min)
+  AND  trip_distance <= 100      -- ignore bad distances
   AND  fare_amount > 0;
 
--- 1b. Per day (for a dashboard trend line)
+-- 1b. Per day
 SELECT pickup_date,
        COUNT(*)                                           AS trips,
        ROUND(SUM(fare_amount) / SUM(trip_distance), 2)    AS avg_fare_per_mile
 FROM   silver.fact_taxi_trips
 WHERE  trip_distance > 0
-  AND  trip_distance <= 100      -- drop GPS/meter errors (e.g. 187,872 miles in 10 min)
+  AND  trip_distance <= 100      -- ignore bad distances
   AND  fare_amount > 0
 GROUP  BY pickup_date
 ORDER  BY pickup_date;
@@ -32,7 +28,7 @@ ORDER  BY pickup_date;
 -- 2. Peak hours for taxi rides
 -- ============================================================================
 
--- 2a. Trips per hour of day, busiest first (top rows = peak hours)
+-- 2a. Trips per hour, busiest first
 SELECT d.hour                                             AS pickup_hour,
        COUNT(*)                                           AS trips,
        ROUND(100.0 * COUNT(*) / SUM(COUNT(*)) OVER (), 1) AS pct_of_trips,
@@ -42,7 +38,7 @@ JOIN   silver.dim_datetime d ON d.datetime_key = f.pickup_datetime_key
 GROUP  BY d.hour
 ORDER  BY trips DESC;
 
--- 2b. Weekday vs weekend: peak hours differ (commute peaks vs late-night peaks)
+-- 2b. Weekday vs weekend
 SELECT CASE WHEN d.is_weekend THEN 'Weekend' ELSE 'Weekday' END AS day_type,
        d.hour                                             AS pickup_hour,
        COUNT(*)                                           AS trips,
@@ -56,7 +52,7 @@ ORDER  BY 1, d.hour;
 -- 3. Total revenue by payment type
 -- ============================================================================
 
--- Net revenue: refunds (negative total_amount) are included so they cancel their original charge.
+-- refunds (negative amounts) are included
 SELECT p.payment_type_id,
        p.description                                       AS payment_type,
        COUNT(*)                                            AS trips,

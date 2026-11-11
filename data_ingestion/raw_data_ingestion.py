@@ -1,7 +1,4 @@
-"""Raw data ingestion: read the D-1 daily parquet file, clean it, load it into bronze.stg_taxi_trips.
-
-Called from the Airflow DAG (airflow/dags/taxi_daily_etl.py):  ingest_data()
-"""
+"""Reads one daily parquet file, cleans it and loads it into bronze.stg_taxi_trips."""
 
 import io
 import logging
@@ -17,12 +14,12 @@ from airflow.providers.postgres.hooks.postgres import PostgresHook
 log = logging.getLogger(__name__)
 
 DW_CONN_ID = "postgres_dw"
-DATA_DIR = Path(os.getenv("DATA_DIR", "/opt/airflow/data"))   # project data/ folder, mounted in the container
+DATA_DIR = Path(os.getenv("DATA_DIR", "/opt/airflow/data"))
 SQL_DIR = Path(os.getenv("SQL_DIR", "/opt/airflow/sql"))
 QUARANTINE_DIR = DATA_DIR / "quarantine"
 STAGING_TABLE = "bronze.stg_taxi_trips"
 
-# Source column (lower-cased) -> bronze column. Other columns keep their name.
+# parquet column -> table column
 RENAME = {
     "vendorid": "vendor_id",
     "tpep_pickup_datetime": "pickup_datetime",
@@ -40,40 +37,39 @@ STAGING_COLUMNS = [
     "improvement_surcharge", "total_amount", "congestion_surcharge", "airport_fee", "source_file",
 ]
 
-# Code columns arrive as floats when they contain NULLs (e.g. 1.0); store them as integers.
+# these come as floats (1.0) when they have nulls
 INTEGER_COLUMNS = [
     "vendor_id", "passenger_count", "rate_code_id",
     "pickup_location_id", "dropoff_location_id", "payment_type_id",
 ]
 
-# Bulk load: Postgres COPY reads CSV rows streamed from Python (much faster than INSERTs).
+# COPY is much faster than INSERT
 data_insertion_sql = f"COPY {STAGING_TABLE} ({', '.join(STAGING_COLUMNS)}) FROM STDIN WITH (FORMAT csv)"
 
-# Removes one pickup date (a range, so the pickup_datetime index can be used).
+# delete one pickup date
 delete_date_sql = f"DELETE FROM {STAGING_TABLE} WHERE pickup_datetime >= %s AND pickup_datetime < %s"
 
 
 def take_d_1_date(custom_date: str | None =  None) -> date:
-    "returns custom_date (YYYY-MM-DD) if given, otherwise yesterday (today - 1 day)"
+    "custom_date if given, else yesterday"
     if custom_date:
         return date.fromisoformat(custom_date)
     return date.today() - timedelta(days=1)
 
 
 def daily_file(day: date) -> Path:
-    "path of the daily parquet file, e.g. data/raw/daily/2023-01/yellow_tripdata_2023-01-15.parquet"
+    "path of the daily parquet file"
     return DATA_DIR / "raw" / "daily" / f"{day:%Y-%m}" / f"yellow_tripdata_{day:%Y-%m-%d}.parquet"
 
 
 def ingest_data() -> dict:
-    "ingests the data for the day returned by take_d_1_date()"
+    "loads the day from take_d_1_date() into bronze"
     d_1_date = take_d_1_date()
     source = daily_file(d_1_date)
     log.info("Ingestion started: load_date=%s file=%s", d_1_date, source)
 
     if not source.exists():
-        # No file for this day (not arrived yet, or no data): skip instead of failing.
-        # Airflow marks the task "skipped", and load_fact after it is skipped too.
+        # no file yet -> skip the task (load_fact is skipped too)
         log.warning("No raw file for %s, skipping this day: %s", d_1_date, source)
         raise AirflowSkipException(f"No raw file for {d_1_date}")
 
@@ -93,10 +89,10 @@ def ingest_data() -> dict:
 
 
 def clean_data(df: pd.DataFrame, day: date) -> pd.DataFrame:
-    "removes invalid trips (saved to data/quarantine/rejected_<day>.parquet) and fixes missing codes"
+    "removes bad trips (saved to data/quarantine) and fixes missing values"
     duration = df["dropoff_datetime"] - df["pickup_datetime"]
 
-    # A trip is rejected for the first rule it fails.
+    # first failed rule = reject reason
     rules = {
         "pickup_not_on_load_date": df["pickup_datetime"].dt.date != day,
         "dropoff_not_after_pickup": duration <= pd.Timedelta(0),
@@ -116,13 +112,13 @@ def clean_data(df: pd.DataFrame, day: date) -> pd.DataFrame:
     log.info("Cleaning: kept=%d rejected=%d reasons=%s",
              len(clean), len(rejected), rejected["reject_reason"].value_counts().to_dict())
 
-    clean["rate_code_id"] = clean["rate_code_id"].fillna(99)                  # 99 = Unknown
-    clean.loc[clean["passenger_count"] == 0, "passenger_count"] = None        # 0 = not entered
+    clean["rate_code_id"] = clean["rate_code_id"].fillna(99)  # 99 = unknown
+    clean.loc[clean["passenger_count"] == 0, "passenger_count"] = None  # 0 = not entered
     return clean
 
 
 def delete_existing_data(cur, df: pd.DataFrame) -> int:
-    "deletes rows already in bronze for every pickup date in the new data, so reloading never duplicates"
+    "deletes the days we are about to load, so reloading does not duplicate"
     deleted = 0
     for day in sorted(df["pickup_datetime"].dt.date.unique()):
         cur.execute(delete_date_sql, (day, day + timedelta(days=1)))
@@ -132,7 +128,7 @@ def delete_existing_data(cur, df: pd.DataFrame) -> int:
 
 
 def insert_data_staging(df: pd.DataFrame) -> int:
-    "inserts the ingested data into the bronze table (one transaction: delete same pickup dates, then COPY)"
+    "delete + copy into bronze in one transaction"
     buffer = io.StringIO()
     df.to_csv(buffer, index=False, header=False)
     buffer.seek(0)
@@ -140,7 +136,7 @@ def insert_data_staging(df: pd.DataFrame) -> int:
     c = PostgresHook.get_connection(DW_CONN_ID)
     conn = psycopg2.connect(host=c.host, port=c.port, dbname=c.schema, user=c.login, password=c.password)
     try:
-        with conn, conn.cursor() as cur:            # commit on success, rollback on error
+        with conn, conn.cursor() as cur:
             delete_existing_data(cur, df)
             cur.copy_expert(data_insertion_sql, buffer)
             return cur.rowcount

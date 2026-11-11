@@ -1,7 +1,5 @@
--- NYC Taxi warehouse schema. Safe to run many times (IF NOT EXISTS everywhere).
---   bronze  : landing tables, emptied and reloaded on every run (no keys, UNLOGGED = fast)
---   silver  : star schema. Dimensions are SCD Type 2, except dim_datetime (a calendar never changes).
---   gold    : reporting views on the star schema, used by Superset dashboards.
+-- Warehouse schema. Safe to run again.
+--   bronze: loaded data   silver: star schema   gold: views for Superset
 
 CREATE SCHEMA IF NOT EXISTS bronze;
 CREATE SCHEMA IF NOT EXISTS silver;
@@ -32,15 +30,14 @@ CREATE UNLOGGED TABLE IF NOT EXISTS bronze.stg_taxi_trips (
     congestion_surcharge   NUMERIC(10,2),
     airport_fee            NUMERIC(10,2),
     source_file            TEXT,
-    updated_at             TIMESTAMP NOT NULL DEFAULT now()   -- when the row was (re)loaded
+    updated_at             TIMESTAMP NOT NULL DEFAULT now()
 );
--- For tables created before updated_at existed (CREATE TABLE IF NOT EXISTS never alters a table).
+-- for tables created before updated_at was added
 ALTER TABLE bronze.stg_taxi_trips ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT now();
--- Speeds up the delete-by-pickup-date that runs before every load.
+-- for the delete by pickup date
 CREATE INDEX IF NOT EXISTS ix_stg_taxi_trips_pickup ON bronze.stg_taxi_trips (pickup_datetime);
 
--- Reference bronze tables: reloaded in full every run (TRUNCATE + COPY).
--- The primary key rejects a CSV that lists the same code twice.
+-- Reference tables (truncate + reload). The primary key blocks duplicate codes.
 CREATE UNLOGGED TABLE IF NOT EXISTS bronze.stg_taxi_zone (
     location_id   SMALLINT PRIMARY KEY,
     borough       TEXT,
@@ -63,7 +60,7 @@ CREATE UNLOGGED TABLE IF NOT EXISTS bronze.stg_vendor (
     vendor_name  TEXT NOT NULL
 );
 
--- For reference tables created before the primary keys existed (CREATE TABLE IF NOT EXISTS never alters a table).
+-- for tables created before the primary keys were added
 DO $$
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'stg_taxi_zone_pkey') THEN
@@ -81,10 +78,8 @@ BEGIN
 END $$;
 
 -- ============================================================================
--- DIMENSIONS (SCD Type 2)
---   *_sk        surrogate key: one per version, referenced by the fact table
---   *_id        natural key from the TLC source data, repeats across versions
---   valid_from / valid_to / is_current: the period a version was true
+-- DIMENSIONS
+--   *_sk = surrogate key (one per version), *_id = code from the source
 -- ============================================================================
 
 CREATE TABLE IF NOT EXISTS silver.dim_location (
@@ -101,11 +96,11 @@ CREATE TABLE IF NOT EXISTS silver.dim_location (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS ux_dim_location_current ON silver.dim_location (location_id) WHERE is_current;
 
--- SCD Type 1 (overwrite, no history): one row per code. A changed description replaces the old one.
+-- SCD1: one row per code, no history
 CREATE TABLE IF NOT EXISTS silver.dim_payment_type (
     payment_type_id  SMALLINT  PRIMARY KEY,
     description      TEXT      NOT NULL,
-    updated_at       TIMESTAMP NOT NULL DEFAULT now()   -- last time the row was inserted or changed
+    updated_at       TIMESTAMP NOT NULL DEFAULT now()
 );
 
 CREATE TABLE IF NOT EXISTS silver.dim_rate_code (
@@ -133,11 +128,11 @@ CREATE TABLE IF NOT EXISTS silver.dim_vendor (
 CREATE UNIQUE INDEX IF NOT EXISTS ux_dim_vendor_current ON silver.dim_vendor (vendor_id) WHERE is_current;
 
 -- ============================================================================
--- DIMENSION: calendar at hour grain (static, generated - not SCD2)
+-- DATETIME DIMENSION (one row per hour)
 -- ============================================================================
 
 CREATE TABLE IF NOT EXISTS silver.dim_datetime (
-    datetime_key   INT PRIMARY KEY,          -- yyyymmddhh, e.g. 2023011514
+    datetime_key   INT PRIMARY KEY,          -- e.g. 2023011514
     datetime_hour  TIMESTAMP NOT NULL UNIQUE,
     date           DATE      NOT NULL,
     year           SMALLINT  NOT NULL,
@@ -145,25 +140,25 @@ CREATE TABLE IF NOT EXISTS silver.dim_datetime (
     month          SMALLINT  NOT NULL,
     month_name     TEXT      NOT NULL,
     day            SMALLINT  NOT NULL,
-    day_of_week    SMALLINT  NOT NULL,       -- ISO: 1 = Monday ... 7 = Sunday
+    day_of_week    SMALLINT  NOT NULL,       -- 1 = Monday, 7 = Sunday
     day_name       TEXT      NOT NULL,
     hour           SMALLINT  NOT NULL,
     is_weekend     BOOLEAN   NOT NULL
 );
 
 -- ============================================================================
--- FACT: one row per taxi trip
+-- FACT (one row per trip)
 -- ============================================================================
 
 CREATE TABLE IF NOT EXISTS silver.fact_taxi_trips (
     trip_id                BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    pickup_date            DATE NOT NULL,     -- load key: each daily run replaces one pickup_date
+    pickup_date            DATE NOT NULL,
     pickup_datetime_key    INT  NOT NULL REFERENCES silver.dim_datetime (datetime_key),
     dropoff_datetime_key   INT  NOT NULL REFERENCES silver.dim_datetime (datetime_key),
     pickup_location_sk     INT  NOT NULL REFERENCES silver.dim_location (location_sk),
     dropoff_location_sk    INT  NOT NULL REFERENCES silver.dim_location (location_sk),
     vendor_sk              INT  NOT NULL REFERENCES silver.dim_vendor (vendor_sk),
-    payment_type_id        SMALLINT NOT NULL REFERENCES silver.dim_payment_type (payment_type_id),  -- Type 1 dim: natural key
+    payment_type_id        SMALLINT NOT NULL REFERENCES silver.dim_payment_type (payment_type_id),
     rate_code_sk           INT  NOT NULL REFERENCES silver.dim_rate_code (rate_code_sk),
     store_and_fwd_flag     CHAR(1),
     passenger_count        SMALLINT,
@@ -188,11 +183,10 @@ CREATE INDEX IF NOT EXISTS ix_fact_pickup_location_sk  ON silver.fact_taxi_trips
 CREATE INDEX IF NOT EXISTS ix_fact_payment_type_id     ON silver.fact_taxi_trips (payment_type_id);
 
 -- ============================================================================
--- GOLD: reporting views (no data stored; always computed from silver)
+-- GOLD VIEWS
 -- ============================================================================
 
--- Fare and miles per pickup day. Average fare per mile = SUM(fare_amount) / SUM(miles),
--- so a dashboard can filter any date range and still get the correct (weighted) average.
+-- fare per mile = SUM(fare_amount) / SUM(miles)
 CREATE OR REPLACE VIEW gold.fare_per_mile_daily AS
 SELECT pickup_date,
        SUM(fare_amount)    AS fare_amount,
@@ -203,7 +197,7 @@ WHERE  trip_distance > 0
 GROUP  BY pickup_date
 ORDER  BY pickup_date;
 
--- Revenue per pickup day and payment type. Total revenue for any date range = SUM(total_revenue).
+-- revenue per day and payment type
 CREATE OR REPLACE VIEW gold.revenue_by_payment_type_daily AS
 SELECT f.pickup_date,
        p.payment_type_id,
@@ -214,7 +208,7 @@ JOIN   silver.dim_payment_type p ON p.payment_type_id = f.payment_type_id
 GROUP  BY f.pickup_date, p.payment_type_id, p.description
 ORDER  BY f.pickup_date DESC;
 
--- Trips per pickup day and hour of day. Peak hours for any date range = SUM(trips) grouped by pickup_hour.
+-- trips per day and hour
 CREATE OR REPLACE VIEW gold.trips_by_hour_daily AS
 SELECT f.pickup_date,
        d.hour                                             AS pickup_hour,

@@ -1,18 +1,12 @@
--- Incremental load of ONE day: bronze.stg_taxi_trips -> silver.fact_taxi_trips  (delete + insert by day)
--- Parameter: %(load_date)s, decided in Python (data_ingestion/fact_ingestion.py).
--- Both statements run in one transaction, so re-running a day replaces it and never duplicates.
---
--- Dimension lookups:
---   SCD2 (location, vendor, rate code): the version valid at the trip's pickup time
---   SCD1 (payment type): one row per code
--- LEFT JOIN + NOT NULL foreign keys: an unknown code makes the load FAIL loudly instead of
--- silently dropping trips (which an inner join would do).
+-- Reload one day of the fact table (delete + insert)
+-- SCD2 dimensions are joined on the version valid at pickup time.
+-- Unknown codes give NULL keys, so the load fails instead of losing trips.
 
--- 1. remove this day's previous load
+-- remove the day
 DELETE FROM silver.fact_taxi_trips
 WHERE  pickup_date = %(load_date)s;
 
--- 2. insert this day's trips (bronze keeps several days, so filter on the load day)
+-- insert the day again from bronze
 INSERT INTO silver.fact_taxi_trips
        (pickup_date, pickup_datetime_key, dropoff_datetime_key,
         pickup_location_sk, dropoff_location_sk, vendor_sk, payment_type_id, rate_code_sk,
@@ -54,7 +48,7 @@ LEFT JOIN silver.dim_vendor v
 LEFT JOIN silver.dim_payment_type p
        ON p.payment_type_id = s.payment_type_id
 LEFT JOIN silver.dim_rate_code r
-       ON r.rate_code_id = COALESCE(s.rate_code_id, 99)      -- missing rate code -> 99 = Unknown
+       ON r.rate_code_id = COALESCE(s.rate_code_id, 99)      -- 99 = unknown
       AND s.pickup_datetime >= r.valid_from AND s.pickup_datetime < r.valid_to
 WHERE  s.pickup_datetime >= %(load_date)s::date
   AND  s.pickup_datetime <  %(load_date)s::date + 1;

@@ -1,7 +1,6 @@
--- SCD Type 2: bronze.stg_rate_code (today's full rate_code.csv) -> silver.dim_rate_code
--- Same logic as scd2_dim_vendor.sql: new -> insert, changed -> expire + insert, unchanged -> untouched.
+-- SCD2: close changed rows, then insert new versions
 
--- 1. expire: close current versions whose description changed
+-- close current rows where the description changed
 UPDATE silver.dim_rate_code d
 SET    valid_to = now(), is_current = FALSE
 FROM   bronze.stg_rate_code s
@@ -9,7 +8,7 @@ WHERE  d.rate_code_id = s.rate_code_id
   AND  d.is_current
   AND  d.description IS DISTINCT FROM s.description;
 
--- 2. insert: rate codes with no current version (brand new, or just expired in step 1)
+-- insert new rate codes and new versions of changed ones
 INSERT INTO silver.dim_rate_code (rate_code_id, description, valid_from)
 SELECT s.rate_code_id,
        s.description,

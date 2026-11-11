@@ -1,7 +1,6 @@
--- SCD Type 2: bronze.stg_taxi_zone (today's full taxi_zone_lookup.csv) -> silver.dim_location
--- Same logic as scd2_dim_vendor.sql, but three attributes are compared (borough, zone, service_zone).
+-- SCD2: close changed rows, then insert new versions
 
--- 1. expire: close current versions where any attribute changed
+-- close current rows where borough, zone or service_zone changed
 UPDATE silver.dim_location d
 SET    valid_to = now(), is_current = FALSE
 FROM   bronze.stg_taxi_zone s
@@ -9,7 +8,7 @@ WHERE  d.location_id = s.location_id
   AND  d.is_current
   AND  (d.borough, d.zone, d.service_zone) IS DISTINCT FROM (s.borough, s.zone, s.service_zone);
 
--- 2. insert: locations with no current version (brand new, or just expired in step 1)
+-- insert new zones and new versions of changed ones
 INSERT INTO silver.dim_location (location_id, borough, zone, service_zone, valid_from)
 SELECT s.location_id,
        s.borough,

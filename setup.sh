@@ -1,15 +1,12 @@
 #!/usr/bin/env bash
-# Set up the project: Python venv, Airflow, warehouse database, taxi data, Superset.
-#
-#   bash setup.sh
-#
-# Safe to run again: each step skips what is already done. Stops at the first error.
+# Sets up the whole project. Safe to run again.
+# Usage: bash setup.sh
 
 set -e
 
 cd "$(dirname "$0")"
 
-# Find a Python 3.10+ ("py -3" is the Windows launcher; plain "python" may be an older version).
+# find Python 3.10 or newer
 find_python() {
     for candidate in "py -3" python3 python; do
         if $candidate -c "import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)" > /dev/null 2>&1; then
@@ -32,7 +29,7 @@ else
     $PYTHON -m venv .venv
 fi
 
-# The venv keeps python in Scripts/ on Windows and in bin/ on Linux/macOS.
+# Scripts/ on Windows, bin/ on Linux/macOS
 if [ -f .venv/Scripts/python.exe ]; then
     VENV_PYTHON=".venv/Scripts/python.exe"
 else

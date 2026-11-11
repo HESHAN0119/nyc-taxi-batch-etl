@@ -1,12 +1,5 @@
-"""
-### Load a custom date range
-
-Loads every day from START_DATE to END_DATE (set in `data_ingestion/custom_date_load.py`) in one run:
-daily parquet -> clean -> `bronze.stg_taxi_trips` -> `silver.fact_taxi_trips`.
-
-Manual only: trigger it from the UI. Each day is its own task (`load_one_day` [0], [1], ...),
-so a failed day can be retried alone. Run the dimension DAGs first.
-"""
+"""Loads all days from START_DATE to END_DATE (set in custom_date_load.py). One task per day.
+Run the dimension DAGs first."""
 
 from datetime import datetime, timedelta
 
@@ -17,7 +10,7 @@ from data_ingestion.db import create_schema
 
 
 @dag(
-    schedule=None,                       # manual trigger only
+    schedule=None,                       # manual only
     start_date=datetime(2026, 1, 1),
     catchup=False,
     max_active_runs=1,
@@ -35,7 +28,7 @@ def load_custom_date():
     def list_days() -> list[str]:
         return get_days()
 
-    @task(max_active_tis_per_dagrun=4)   # load up to 4 days at the same time
+    @task(max_active_tis_per_dagrun=4)   # max 4 days in parallel
     def load_one_day(day: str) -> dict:
         return load_day(day)
 

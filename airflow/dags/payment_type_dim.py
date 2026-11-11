@@ -1,11 +1,4 @@
-"""
-### Payment type dimension (SCD Type 1)
-
-`data/reference/payment_type.csv` -> `bronze.stg_payment_type` (truncate + reload)
--> `silver.dim_payment_type` (upsert: new codes inserted, changed labels overwritten, no history).
-
-Logic: `data_ingestion/payment_type_ingestion.py`, SQL: `sql/load_dim_payment_type.sql`.
-"""
+"""Payment type dimension (SCD1): payment_type.csv -> bronze.stg_payment_type -> silver.dim_payment_type."""
 
 from datetime import datetime, timedelta
 
@@ -16,7 +9,7 @@ from data_ingestion.payment_type_ingestion import ingest_payment_type_data, load
 
 
 @dag(
-    schedule="0 1 * * *",                # 01:00 daily, before the trip load at 02:00
+    schedule="0 1 * * *",                # 01:00 every day
     start_date=datetime(2026, 1, 1),
     catchup=False,
     max_active_runs=1,

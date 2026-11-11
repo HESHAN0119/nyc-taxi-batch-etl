@@ -1,13 +1,5 @@
-"""Download NYC Yellow Taxi months with curl and split each into one parquet file per pickup day.
-
-Usage:
-    python scripts/split_monthly_to_daily.py
-
-For every month in MONTHS:
-    1. download (curl) -> data/quarantine/yellow_tripdata_<month>.parquet   (skipped if already there)
-    2. split           -> data/raw/daily/<month>/yellow_tripdata_<day>.parquet
-Trips with a pickup date outside the month go to data/quarantine/yellow_tripdata_<month>_out_of_range.parquet.
-"""
+"""Downloads the taxi months (MONTHS) with curl and splits them into daily parquet files.
+Monthly files and out-of-range trips go to data/quarantine, daily files to data/raw/daily."""
 
 import subprocess
 from pathlib import Path
@@ -23,7 +15,7 @@ DOWNLOAD_URL = "https://d37ci6vzurychx.cloudfront.net/trip-data/yellow_tripdata_
 
 
 def download_month(month: str) -> Path:
-    "downloads the monthly file into data/quarantine with curl (only if it is not there yet)"
+    "downloads the month with curl (skips if already downloaded)"
     QUARANTINE_DIR.mkdir(parents=True, exist_ok=True)
     monthly_file = QUARANTINE_DIR / f"yellow_tripdata_{month}.parquet"
 
@@ -33,17 +25,16 @@ def download_month(month: str) -> Path:
 
     url = DOWNLOAD_URL.format(month=month)
     print(f"Downloading {url}")
-    # -f: fail on HTTP errors, -L: follow redirects, -o: output file
     subprocess.run(["curl", "-fL", "-o", str(monthly_file), url], check=True)
     return monthly_file
 
 
 def split_into_days(monthly_file: Path, month: str) -> None:
-    "reads the monthly file and writes one parquet file per pickup day"
+    "writes one parquet file per pickup day"
     trips = pd.read_parquet(monthly_file)
     print(f"Read {len(trips):,} trips from {monthly_file.name}")
 
-    # Keep only trips that started inside this month.
+    # keep only trips of this month
     first_day = pd.Timestamp(f"{month}-01")
     next_month = first_day + pd.offsets.MonthBegin(1)
     pickup = trips["tpep_pickup_datetime"]

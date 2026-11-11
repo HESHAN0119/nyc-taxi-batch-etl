@@ -1,11 +1,4 @@
-"""
-### Vendor dimension (SCD Type 2)
-
-`data/reference/vendor.csv` -> `bronze.stg_vendor` (truncate + reload)
--> `silver.dim_vendor` (changed vendor: old row closed + new version inserted; history kept).
-
-Logic: `data_ingestion/vendor_ingestion.py`, SQL: `sql/scd2_dim_vendor.sql`.
-"""
+"""Vendor dimension (SCD2): vendor.csv -> bronze.stg_vendor -> silver.dim_vendor."""
 
 from datetime import datetime, timedelta
 
@@ -16,7 +9,7 @@ from data_ingestion.vendor_ingestion import ingest_vendor_data, load_dim_vendor
 
 
 @dag(
-    schedule="10 1 * * *",               # 01:10 daily, before the trip load at 02:00
+    schedule="10 1 * * *",               # 01:10 every day
     start_date=datetime(2026, 1, 1),
     catchup=False,
     max_active_runs=1,

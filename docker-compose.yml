@@ -1,21 +1,11 @@
-# NYC Taxi batch ETL - local stack: PostgreSQL + Apache Airflow 3 (LocalExecutor) + Apache Superset
-#
-#   docker compose up -d --build      start everything
-#   docker compose ps                 check health
-#   docker compose down               stop (data is kept in the volumes)
-#   docker compose down -v            stop AND delete all database data
-#
-# Airflow UI:    http://localhost:${AIRFLOW_HOST_PORT}  (login from .env: AIRFLOW_ADMIN_USER / AIRFLOW_ADMIN_PASSWORD)
-# Warehouse DB:  localhost:${DW_HOST_PORT}  db taxi_dw   (container dw-postgres)
-# Airflow DB:    internal only            db airflow   (container airflow-postgres)
-# Superset UI:   http://localhost:${SUPERSET_HOST_PORT}  (login from .env: SUPERSET_ADMIN_USER / SUPERSET_ADMIN_PASSWORD)
-# Superset DB:   internal only            db superset  (container superset-postgres)
+# Airflow + PostgreSQL warehouse + Superset
+# Airflow :8888, Superset :8088, warehouse :5433 (ports in .env)
 
 x-airflow-common: &airflow-common
-  # Built once by airflow-init (see below); all other Airflow services reuse this image.
+  # built by airflow-init, used by all Airflow services
   image: nyc-taxi-airflow:3.3.2
   environment: &airflow-common-env
-    # LocalExecutor runs tasks inside the scheduler container: no Redis/Celery needed on one machine.
+    # tasks run in the scheduler (no Celery needed)
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
     AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
     AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:${AIRFLOW_DB_PASSWORD}@airflow-postgres:5432/airflow
@@ -25,9 +15,9 @@ x-airflow-common: &airflow-common
     AIRFLOW__CORE__EXECUTION_API_SERVER_URL: 'http://airflow-apiserver:8080/execution/'
     AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW_JWT_SECRET}
     AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: 'true'
-    # Warehouse connection, available in DAGs as conn_id="postgres_dw".
+    # warehouse connection (postgres_dw)
     AIRFLOW_CONN_POSTGRES_DW: postgresql://${DW_DB_USER}:${DW_DB_PASSWORD}@dw-postgres:5432/${DW_DB_NAME}
-    # Lets DAGs import project code:  from data_ingestion.raw_data_ingestion import ingest_data
+    # so DAGs can import data_ingestion
     PYTHONPATH: /opt/airflow
   volumes:
     - ./airflow/dags:/opt/airflow/dags
@@ -44,7 +34,7 @@ x-airflow-common: &airflow-common
       condition: service_healthy
 
 services:
-  # Airflow's own metadata database (DAG runs, task states, users). Internal only: no host port.
+  # Airflow metadata database
   airflow-postgres:
     image: postgres:16
     container_name: airflow-postgres
@@ -61,7 +51,7 @@ services:
       start_period: 10s
     restart: always
 
-  # Taxi data warehouse (star schema). Reachable from the host for SQL clients / Superset.
+  # taxi data warehouse
   dw-postgres:
     build: ./postgres
     image: nyc-taxi-dw-postgres:16
@@ -75,8 +65,6 @@ services:
     volumes:
       - dw-pgdata:/var/lib/postgresql/data
     healthcheck:
-      # -h localhost forces TCP, so the check only passes after init scripts have finished
-      # (during init Postgres listens on the unix socket only).
       test: ["CMD", "pg_isready", "-h", "localhost", "-U", "${DW_DB_USER}", "-d", "${DW_DB_NAME}"]
       interval: 10s
       retries: 10
@@ -95,7 +83,7 @@ services:
         /entrypoint airflow version
     environment:
       <<: *airflow-common-env
-      # Handled by the image entrypoint: migrate the metadata DB and create the admin user.
+      # migrate the database and create the admin user
       _AIRFLOW_DB_MIGRATE: 'true'
       _AIRFLOW_WWW_USER_CREATE: 'true'
       _AIRFLOW_WWW_USER_USERNAME: ${AIRFLOW_ADMIN_USER}
@@ -106,7 +94,7 @@ services:
     <<: *airflow-common
     command: api-server
     ports:
-      # Host port is configurable: Windows reserves 8080 (Hyper-V excluded port range) on this machine.
+      # 8080 is blocked on Windows here, so 8888 by default
       - "${AIRFLOW_HOST_PORT:-8888}:8080"
     healthcheck:
       test: ["CMD", "curl", "--fail", "http://localhost:8080/api/v2/monitor/health"]
@@ -165,11 +153,9 @@ services:
       airflow-init:
         condition: service_completed_successfully
 
-  # ---------------------------------------------------------------------------
-  # Superset (dashboards on the warehouse)
-  # ---------------------------------------------------------------------------
+  # Superset
 
-  # Superset's own metadata database (users, charts, dashboards). Internal only: no host port.
+  # Superset metadata database
   superset-postgres:
     image: postgres:16
     container_name: superset-postgres
@@ -186,7 +172,7 @@ services:
       start_period: 10s
     restart: always
 
-  # Runs once, then exits: creates Superset's tables, the admin user, and the warehouse connection.
+  # runs once: tables, admin user and the warehouse connection
   superset-init:
     build: ./superset
     image: nyc-taxi-superset:6.1.0
@@ -205,7 +191,7 @@ services:
         superset db upgrade
         superset fab create-admin --username "${SUPERSET_ADMIN_USER}" --password "${SUPERSET_ADMIN_PASSWORD}"           --firstname Admin --lastname User --email admin@example.com || echo "admin user already exists"
         superset init
-        # The warehouse, ready to use in Superset as database "NYC Taxi DW" (updated on every start).
+        # add the warehouse as "NYC Taxi DW"
         superset set-database-uri --database_name "NYC Taxi DW"           --uri "postgresql+psycopg2://${DW_DB_USER}:${DW_DB_PASSWORD}@dw-postgres:5432/${DW_DB_NAME}"
     depends_on:
       superset-postgres:
@@ -214,7 +200,7 @@ services:
         condition: service_healthy
 
   superset:
-    image: nyc-taxi-superset:6.1.0          # built by superset-init
+    image: nyc-taxi-superset:6.1.0
     container_name: superset
     environment: *superset-env
     volumes: *superset-volumes

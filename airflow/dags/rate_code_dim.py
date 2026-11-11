@@ -1,11 +1,4 @@
-"""
-### Rate code dimension (SCD Type 2)
-
-`data/reference/rate_code.csv` -> `bronze.stg_rate_code` (truncate + reload)
--> `silver.dim_rate_code` (changed rate code: old row closed + new version inserted; history kept).
-
-Logic: `data_ingestion/rate_code_ingestion.py`, SQL: `sql/scd2_dim_rate_code.sql`.
-"""
+"""Rate code dimension (SCD2): rate_code.csv -> bronze.stg_rate_code -> silver.dim_rate_code."""
 
 from datetime import datetime, timedelta
 
@@ -16,7 +9,7 @@ from data_ingestion.rate_code_ingestion import ingest_rate_code_data, load_dim_r
 
 
 @dag(
-    schedule="20 1 * * *",               # 01:20 daily, before the trip load at 02:00
+    schedule="20 1 * * *",               # 01:20 every day
     start_date=datetime(2026, 1, 1),
     catchup=False,
     max_active_runs=1,
