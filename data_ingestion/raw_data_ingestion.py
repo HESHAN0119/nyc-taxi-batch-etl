@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pandas as pd
 import psycopg2
+from airflow.exceptions import AirflowSkipException
 from airflow.providers.postgres.hooks.postgres import PostgresHook
 
 log = logging.getLogger(__name__)
@@ -71,7 +72,10 @@ def ingest_data() -> dict:
     log.info("Ingestion started: load_date=%s file=%s", d_1_date, source)
 
     if not source.exists():
-        raise FileNotFoundError(f"No raw file for {d_1_date}: {source}")
+        # No file for this day (not arrived yet, or no data): skip instead of failing.
+        # Airflow marks the task "skipped", and load_fact after it is skipped too.
+        log.warning("No raw file for %s, skipping this day: %s", d_1_date, source)
+        raise AirflowSkipException(f"No raw file for {d_1_date}")
 
     df = pd.read_parquet(source)
     df = df.rename(columns=str.lower).rename(columns=RENAME)
